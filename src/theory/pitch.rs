@@ -1,8 +1,11 @@
-use derive_more::Display as DMDisplay;
-use crate::theory::interval::IntervalStep;
+use std::fmt::{Display, Formatter};
+use std::io::Error;
+use std::ops::Sub;
+use regex::Regex;
+use crate::theory::interval::{Interval, IntervalStep};
 use crate::utils::float_mod;
 
-#[derive(DMDisplay, Clone, PartialEq, Debug, Eq)]
+#[derive(Clone, PartialEq, Debug, Eq)]
 pub enum PitchName {
     C,
     D,
@@ -13,7 +16,39 @@ pub enum PitchName {
     B,
 }
 
-#[derive(DMDisplay, Clone, PartialEq, Debug, Eq)]
+impl Display for PitchName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            PitchName::C => "C",
+            PitchName::D => "D",
+            PitchName::E => "E",
+            PitchName::F => "F",
+            PitchName::G => "G",
+            PitchName::A => "A",
+            PitchName::B => "B",
+        })
+    }
+}
+
+impl TryFrom<String> for PitchName {
+    type Error = ();
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            "C" => Ok(PitchName::C),
+            "D" => Ok(PitchName::D),
+            "E" => Ok(PitchName::E),
+            "F" => Ok(PitchName::F),
+            "G" => Ok(PitchName::G),
+            "A" => Ok(PitchName::A),
+            "B" => Ok(PitchName::B),
+            _ => Err(()),
+        }
+    }
+}
+
+
+#[derive(Clone, PartialEq, Debug, Eq)]
 pub enum Accidental {
     Sharp,
     Flat,
@@ -22,11 +57,64 @@ pub enum Accidental {
     None,
 }
 
+impl Display for Accidental {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            Accidental::Sharp => "#",
+            Accidental::Flat => "b",
+            Accidental::DoubleSharp => "##",
+            Accidental::DoubleFlat => "bb",
+            Accidental::None => "",
+        })
+    }
+}
+
+impl TryFrom<String> for Accidental {
+    type Error = ();
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            "#" => Ok(Accidental::Sharp),
+            "b" => Ok(Accidental::Flat),
+            "##" => Ok(Accidental::DoubleSharp),
+            "bb" => Ok(Accidental::DoubleFlat),
+            "" => Ok(Accidental::None),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Pitch {
     pub name: PitchName,
     pub accidental: Accidental,
     pub octave: i8,
+}
+
+impl Display for Pitch {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}{}", self.name, self.accidental, self.octave)
+    }
+}
+
+impl TryFrom<String> for Pitch {
+    type Error = ();
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let re = Regex::new(r"^([A-G])(#{1,2}|b{1,2})?([0-9]|[1-9]\d)$").unwrap();
+        if let Some(captures) = re.captures(&value) {
+            let name = captures.get(1).ok_or(())?.as_str();
+            let accidental = captures.get(2).map_or("", |m| m.as_str());
+            let octave = captures.get(3).ok_or(())?.as_str();
+            Ok(Self {
+                name: PitchName::try_from(name.to_string())?,
+                accidental: Accidental::try_from(accidental.to_string())?,
+                octave: octave.parse().map_err(|_| ())?,
+            })
+        } else {
+            Err(())
+        }
+    }
 }
 
 impl Pitch {
@@ -49,7 +137,24 @@ impl Pitch {
         let number_of_semitones = (f32::from(self.clone()) - f32::from(standard_pitch)) / f32::from(IntervalStep::Half);
         440.0 * 2.0_f32.powf(number_of_semitones / 12.0)
     }
+    pub fn distance(&self, other: &Self) -> f32 {
+        let dist = f32::from(other.clone()) - f32::from(self.clone());
+        dist.abs()
+    }
+    pub fn get_the_nearest_pitch(&self, others: Vec<Pitch>) -> Self {
+        let mut min_distance = f32::MAX;
+        let mut nearest_pitch = self.clone();
+        for pitch in others {
+            let distance = self.distance(&pitch);
+            if distance < min_distance {
+                min_distance = distance;
+                nearest_pitch = pitch;
+            }
+        }
+        nearest_pitch
+    }
 }
+
 
 impl PartialEq<Self> for Pitch {
     fn eq(&self, other: &Self) -> bool {
@@ -277,5 +382,125 @@ mod cmp_tests {
         let pitch2 = Pitch::new_without_accidental(PitchName::D, 0);
         assert!(pitch1 < pitch2);
         assert!(pitch2 > pitch1);
+    }
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+
+    #[test]
+    fn test_display() {
+        let pitch = Pitch::new_without_accidental(PitchName::C, 0);
+        assert_eq!(format!("{}", pitch), "C0");
+        let pitch = Pitch::new_without_accidental(PitchName::C, 1);
+        assert_eq!(format!("{}", pitch), "C1");
+        let pitch = Pitch::new(PitchName::C, 0, Accidental::Sharp);
+        assert_eq!(format!("{}", pitch), "C#0");
+        let pitch = Pitch::new(PitchName::C, 0, Accidental::Flat);
+        assert_eq!(format!("{}", pitch), "Cb0");
+        let pitch = Pitch::new(PitchName::C, 0, Accidental::DoubleSharp);
+        assert_eq!(format!("{}", pitch), "C##0");
+        let pitch = Pitch::new(PitchName::C, 0, Accidental::DoubleFlat);
+        assert_eq!(format!("{}", pitch), "Cbb0");
+    }
+}
+
+#[cfg(test)]
+mod pitch_from_string_tests {
+    use super::*;
+
+    #[test]
+    fn test_c0() {
+        let pitch = Pitch::try_from("C0".to_string()).unwrap();
+        assert_eq!(pitch, Pitch::new_without_accidental(PitchName::C, 0));
+    }
+
+    #[test]
+    fn test_c1() {
+        let pitch = Pitch::try_from("C1".to_string()).unwrap();
+        assert_eq!(pitch, Pitch::new_without_accidental(PitchName::C, 1));
+    }
+
+    #[test]
+    fn test_c0_sharp() {
+        let pitch = Pitch::try_from("C#0".to_string()).unwrap();
+        assert_eq!(pitch, Pitch::new(PitchName::C, 0, Accidental::Sharp));
+    }
+
+    #[test]
+    fn test_c0_flat() {
+        let pitch = Pitch::try_from("Cb0".to_string()).unwrap();
+        assert_eq!(pitch, Pitch::new(PitchName::C, 0, Accidental::Flat));
+    }
+
+    #[test]
+    fn test_c0_double_sharp() {
+        let pitch = Pitch::try_from("C##0".to_string()).unwrap();
+        assert_eq!(pitch, Pitch::new(PitchName::C, 0, Accidental::DoubleSharp));
+    }
+
+    #[test]
+    fn test_c0_double_flat() {
+        let pitch = Pitch::try_from("Cbb0".to_string()).unwrap();
+        assert_eq!(pitch, Pitch::new(PitchName::C, 0, Accidental::DoubleFlat));
+    }
+}
+
+#[cfg(test)]
+mod get_the_nearest_pitch_tests {
+    use crate::theory::pitch::Accidental::{None, Sharp};
+    use super::*;
+
+    #[test]
+    fn test_in_the_same_octave() {
+        let pitch = Pitch::new_without_accidental(PitchName::C, 0);
+        let pitches = vec![
+            Pitch::new(PitchName::C, 0, Sharp),
+            Pitch::new_without_accidental(PitchName::D, 0),
+            Pitch::new_without_accidental(PitchName::E, 0),
+            Pitch::new_without_accidental(PitchName::F, 0),
+            Pitch::new_without_accidental(PitchName::G, 0),
+            Pitch::new_without_accidental(PitchName::A, 0),
+            Pitch::new_without_accidental(PitchName::B, 0),
+        ];
+        assert_eq!(pitch.get_the_nearest_pitch(pitches), Pitch::new(PitchName::C, 0, Sharp));
+    }
+
+    #[test]
+    fn test_in_different_octave() {
+        let pitch = Pitch::new_without_accidental(PitchName::C, 1);
+        let pitches = vec![
+            Pitch::new_without_accidental(PitchName::C, 0),
+            Pitch::new_without_accidental(PitchName::D, 0),
+            Pitch::new_without_accidental(PitchName::E, 0),
+            Pitch::new_without_accidental(PitchName::F, 0),
+            Pitch::new_without_accidental(PitchName::G, 0),
+            Pitch::new_without_accidental(PitchName::A, 0),
+            Pitch::new_without_accidental(PitchName::B, 0),
+        ];
+        assert_eq!(pitch.get_the_nearest_pitch(pitches), Pitch::new_without_accidental(PitchName::B, 0));
+    }
+
+    #[test]
+    fn test_the_nearest_is_self() {
+        let pitch = Pitch::new_without_accidental(PitchName::C, 0);
+        let pitches = vec![
+            Pitch::new_without_accidental(PitchName::C, 0),
+            Pitch::new_without_accidental(PitchName::D, 0),
+            Pitch::new_without_accidental(PitchName::E, 0),
+            Pitch::new_without_accidental(PitchName::F, 0),
+            Pitch::new_without_accidental(PitchName::G, 0),
+            Pitch::new_without_accidental(PitchName::A, 0),
+            Pitch::new_without_accidental(PitchName::B, 0),
+        ];
+        assert_eq!(pitch.get_the_nearest_pitch(pitches), Pitch::new_without_accidental(PitchName::C, 0));
+    }
+
+    #[test]
+    fn test_empty_pitches() {
+        let pitch = Pitch::new_without_accidental(PitchName::C, 0);
+        let pitches = vec![];
+        assert_eq!(pitch.get_the_nearest_pitch(pitches), Pitch::new_without_accidental(PitchName::C, 0));
     }
 }
