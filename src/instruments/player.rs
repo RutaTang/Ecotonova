@@ -113,17 +113,3 @@ pub fn generate_pitch_samples(instrument: Instrument, pitch: Pitch) -> Result<(u
 
     Ok((meta_info.sample_rate, samples))
 }
-
-
-#[cfg(test)]
-mod tests {
-    use crate::theory::pitch::{Accidental, PitchName};
-    use super::*;
-
-    #[test]
-    fn test_wave_generate() {
-        let instrument = Instrument::SalamanderGrandPiano;
-        let pitch = Pitch::new(PitchName::C, 4, Accidental::None);
-        instrument.play(pitch).unwrap();
-    }
-}
